@@ -14,6 +14,7 @@ use AmpProject\AmpWP\QueryVar;
 use AmpProject\AmpWP\ConfigurationArgument;
 use AmpProject\AmpWP\Services;
 use AmpProject\Attribute;
+use AmpProject\DevMode;
 use AmpProject\Dom\Document;
 use AmpProject\Extension;
 use AmpProject\Optimizer;
@@ -914,6 +915,23 @@ class AMP_Theme_Support {
 				wp_dequeue_script( 'comment-reply' ); // Handled largely by AMP_Comments_Sanitizer and *reply* methods in this class.
 			}
 		);
+
+		// Enable Bento experiment per <https://amp.dev/documentation/guides-and-tutorials/start/bento_guide/?format=websites#enable-bento-experiment>.
+		// @todo Remove this once Bento no longer requires an experiment to opt-in.
+		if ( amp_is_bento_enabled() ) {
+			add_action(
+				'wp_head',
+				static function () {
+					?>
+					<script data-ampdevmode>
+						(self.AMP = self.AMP || []).push(function (AMP) {
+							AMP.toggleExperiment('bento', true);
+						});
+					</script>
+					<?php
+				}
+			);
+		}
 	}
 
 	/**
@@ -1423,7 +1441,6 @@ class AMP_Theme_Support {
 		}
 
 		// Ensure rel=canonical link.
-		$rel_canonical = null;
 		if ( empty( $links['canonical'] ) ) {
 			$rel_canonical = AMP_DOM_Utils::create_node(
 				$dom,
@@ -1511,6 +1528,11 @@ class AMP_Theme_Support {
 		// issue: <https://github.com/ampproject/amphtml/issues/35402#issuecomment-887837815>.
 		if ( in_array( 'amp-lightbox-gallery', $script_handles, true ) ) {
 			$superfluous_script_handles = array_diff( $superfluous_script_handles, [ 'amp-carousel' ] );
+		}
+
+		// When opting-in to POST forms, omit the amp-form component entirely since it blocks submission.
+		if ( amp_is_native_post_form_allowed() && $dom->xpath->query( '//form[ @action and @method and translate( @method, "POST", "post" ) = "post" ]' )->length > 0 ) {
+			$superfluous_script_handles[] = Extension::FORM;
 		}
 
 		foreach ( $superfluous_script_handles as $superfluous_script_handle ) {
@@ -2092,6 +2114,14 @@ class AMP_Theme_Support {
 			return esc_html__( 'Redirecting since AMP version not available.', 'amp' );
 		}
 
+		// Prevent serving a page in Dev Mode as being marked as AMP when the user is not logged-in to avoid it from
+		// being flagged as invalid by Google Search Console.
+		if ( $dom->documentElement->hasAttribute( DevMode::DEV_MODE_ATTRIBUTE ) && ! is_user_logged_in() ) {
+			$dom->documentElement->removeAttribute( Attribute::AMP );
+			$dom->documentElement->removeAttribute( Attribute::AMP_EMOJI );
+			$dom->documentElement->removeAttribute( Attribute::AMP_EMOJI_ALT );
+		}
+
 		$response = $dom->saveHTML();
 
 		/**
@@ -2117,6 +2147,13 @@ class AMP_Theme_Support {
 		add_filter(
 			'amp_enable_ssr',
 			static function () use ( $args ) {
+				// @codeCoverageIgnoreStart
+				// SSR currently does not work reliably with Bento. See <https://github.com/ampproject/amphtml/issues/35485>.
+				if ( amp_is_bento_enabled() ) {
+					return false;
+				}
+				// @codeCoverageIgnoreEnd
+
 				return array_key_exists( ConfigurationArgument::ENABLE_SSR, $args )
 					? $args[ ConfigurationArgument::ENABLE_SSR ]
 					: true;

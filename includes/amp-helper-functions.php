@@ -874,6 +874,32 @@ function amp_add_generator_metadata() {
 }
 
 /**
+ * Determine whether the use of Bento components is enabled.
+ *
+ * When Bento is enabled, newer experimental versions of AMP components are used which incorporate the next generation
+ * of the component framework.
+ *
+ * @since 2.2
+ * @link https://blog.amp.dev/2021/01/28/bento/
+ *
+ * @return bool Whether Bento components are enabled.
+ */
+function amp_is_bento_enabled() {
+	/**
+	 * Filters whether the use of Bento components is enabled.
+	 *
+	 * When Bento is enabled, newer experimental versions of AMP components are used which incorporate the next generation
+	 * of the component framework.
+	 *
+	 * @since 2.2
+	 * @link https://blog.amp.dev/2021/01/28/bento/
+	 *
+	 * @param bool $enabled Enabled.
+	 */
+	return apply_filters( 'amp_bento_enabled', false );
+}
+
+/**
  * Register default scripts for AMP components.
  *
  * @internal
@@ -924,17 +950,24 @@ function amp_register_default_scripts( $wp_scripts ) {
 		$extension_specs['amp-carousel']['latest'] = '0.2';
 	}
 
+	$bento_enabled = amp_is_bento_enabled();
 	foreach ( $extension_specs as $extension_name => $extension_spec ) {
+		if ( $bento_enabled && ! empty( $extension_spec['bento'] ) ) {
+			$version = $extension_spec['bento']['version'];
+		} else {
+			$version = $extension_spec['latest'];
+		}
+
 		$src = sprintf(
 			'https://cdn.ampproject.org/v0/%s-%s.js',
 			$extension_name,
-			$extension_spec['latest']
+			$version
 		);
 
 		$wp_scripts->add(
 			$extension_name,
 			$src,
-			[ 'amp-runtime' ],
+			[ 'amp-runtime' ], // @todo Eventually this will not be present for Bento.
 			null
 		);
 	}
@@ -964,6 +997,28 @@ function amp_register_default_styles( WP_Styles $styles ) {
 		AMP__VERSION
 	);
 	$styles->add_data( 'amp-icons', 'rtl', 'replace' );
+
+	// These are registered exclusively for non-AMP pages that manually enqueue them. They aren't needed on
+	// AMP pages due to the runtime style being present and because the styles are inlined in the scripts already.
+	if ( amp_is_bento_enabled() ) {
+		foreach ( AMP_Allowed_Tags_Generated::get_extension_specs() as $extension_name => $extension_spec ) {
+			if ( empty( $extension_spec['bento']['has_css'] ) ) {
+				continue;
+			}
+
+			$src = sprintf(
+				'https://cdn.ampproject.org/v0/%s-%s.css',
+				$extension_name,
+				$extension_spec['bento']['version']
+			);
+			$styles->add(
+				$extension_name,
+				$src,
+				[],
+				null
+			);
+		}
+	}
 }
 
 /**
@@ -1325,8 +1380,54 @@ function amp_is_dev_mode() {
 			( is_admin_bar_showing() && is_user_logged_in() )
 			||
 			is_customize_preview()
+			||
+			// Force dev mode for Bento since it currently requires the Bento experiment opt-in script.
+			// @todo Remove this once Bento no longer requires an experiment to opt-in. See <https://amp.dev/documentation/guides-and-tutorials/start/bento_guide/?format=websites#enable-bento-experiment>.
+			amp_is_bento_enabled()
 		)
 	);
+}
+
+/**
+ * Determine whether native `img` should be used instead of converting to `amp-img`.
+ *
+ * @since 2.2
+ *
+ * @return bool Whether to use `img`.
+ */
+function amp_is_native_img_used() {
+	/**
+	 * Filters whether to use the native `img` element rather than convert to `amp-img`.
+	 *
+	 * This filter is a feature flag to opt-in to discontinue using `amp-img` (and `amp-anim`) which will be deprecated
+	 * in AMP in the near future. Once this lands in AMP, this filter will switch to defaulting to true instead of false.
+	 *
+	 * @since 2.2
+	 * @link https://github.com/ampproject/amphtml/issues/30442
+	 *
+	 * @param bool $use_native Whether to use `img`.
+	 */
+	return (bool) apply_filters( 'amp_native_img_used', false );
+}
+
+/**
+ * Determine whether to allow native `POST` forms without conversion to use the `action-xhr` attribute and use the amp-form component.
+ *
+ * @since 2.2
+ * @link https://github.com/ampproject/amphtml/issues/27638
+ *
+ * @return bool Whether to allow native `POST` forms.
+ */
+function amp_is_native_post_form_allowed() {
+	/**
+	 * Filters whether to allow native `POST` forms without conversion to use the `action-xhr` attribute and use the amp-form component.
+	 *
+	 * @since 2.2
+	 * @link https://github.com/ampproject/amphtml/issues/27638
+	 *
+	 * @param bool $use_native Whether to allow native `POST` forms.
+	 */
+	return (bool) apply_filters( 'amp_native_post_form_allowed', false );
 }
 
 /**
@@ -1373,22 +1474,29 @@ function amp_get_content_sanitizers( $post = null ) {
 		AMP_Theme_Support::TRANSITIONAL_MODE_SLUG === AMP_Options_Manager::get_option( Option::THEME_SUPPORT )
 	);
 
+	$native_img_used           = amp_is_native_img_used();
+	$native_post_forms_allowed = amp_is_native_post_form_allowed();
+
 	$sanitizers = [
 		'AMP_Embed_Sanitizer'             => [
 			'amp_to_amp_linking_enabled' => $amp_to_amp_linking_enabled,
 		],
 		'AMP_Core_Theme_Sanitizer'        => [
-			'template'       => get_template(),
-			'stylesheet'     => get_stylesheet(),
-			'theme_features' => [
+			'template'        => get_template(),
+			'stylesheet'      => get_stylesheet(),
+			'theme_features'  => [
 				'force_svg_support' => [], // Always replace 'no-svg' class with 'svg' if it exists.
 			],
+			'native_img_used' => $native_img_used,
 		],
 		'AMP_Srcset_Sanitizer'            => [],
 		'AMP_Img_Sanitizer'               => [
 			'align_wide_support' => current_theme_supports( 'align-wide' ),
+			'native_img_used'    => $native_img_used,
 		],
-		'AMP_Form_Sanitizer'              => [],
+		'AMP_Form_Sanitizer'              => [
+			'native_post_forms_allowed' => $native_post_forms_allowed,
+		],
 		'AMP_Comments_Sanitizer'          => [
 			'comments_live_list' => ! empty( $theme_support_args['comments_live_list'] ),
 		],
@@ -1404,6 +1512,7 @@ function amp_get_content_sanitizers( $post = null ) {
 		],
 		'AMP_Gallery_Block_Sanitizer'     => [ // Note: Gallery block sanitizer must come after image sanitizers since itś logic is using the already sanitized images.
 			'carousel_required' => ! is_array( $theme_support_args ), // For back-compat.
+			'native_img_used'   => $native_img_used,
 		],
 		'AMP_Block_Sanitizer'             => [], // Note: Block sanitizer must come after embed / media sanitizers since its logic is using the already sanitized content.
 		'AMP_Script_Sanitizer'            => [],
@@ -1411,7 +1520,10 @@ function amp_get_content_sanitizers( $post = null ) {
 		'AMP_Meta_Sanitizer'              => [],
 		'AMP_Layout_Sanitizer'            => [],
 		'AMP_Accessibility_Sanitizer'     => [],
-		'AMP_Tag_And_Attribute_Sanitizer' => [], // Note: This validating sanitizer must come at the end to clean up any remaining issues the other sanitizers didn't catch.
+		// Note: This validating sanitizer must come at the end to clean up any remaining issues the other sanitizers didn't catch.
+		'AMP_Tag_And_Attribute_Sanitizer' => [
+			'prefer_bento' => amp_is_bento_enabled(),
+		],
 	];
 
 	if ( ! empty( $theme_support_args['nav_menu_toggle'] ) ) {
