@@ -67,7 +67,7 @@ export async function selectReaderTheme( theme = 'legacy' ) {
 	await page.$eval( selector, ( el ) => el.click() );
 }
 
-export async function moveToSummaryScreen( { technical = true, mode, readerTheme = 'legacy' } ) {
+export async function moveToDoneScreen( { technical = true, mode, readerTheme = 'legacy' } ) {
 	if ( mode === 'reader' ) {
 		await moveToReaderThemesScreen( { technical } );
 		await selectReaderTheme( readerTheme );
@@ -78,34 +78,7 @@ export async function moveToSummaryScreen( { technical = true, mode, readerTheme
 
 	await clickNextButton();
 
-	await page.waitForSelector( '.summary' );
-}
-
-export async function moveToDoneScreen( { technical = true, mode, readerTheme = 'legacy', mobileRedirect = true } ) {
-	await moveToSummaryScreen( { technical, mode, readerTheme, mobileRedirect } );
-
-	if ( 'standard' !== mode ) {
-		await page.waitForSelector( '.amp-setting-toggle input' );
-
-		const selector = '.amp-setting-toggle .components-form-toggle.is-checked';
-		const checkedMobileRedirect = await page.waitForSelector( selector );
-
-		if ( checkedMobileRedirect && false === mobileRedirect ) {
-			const labelSelector = `${ selector } + label`;
-			await page.evaluate( ( selectorLabel ) => {
-				document.querySelector( selectorLabel ).scrollIntoView();
-			}, labelSelector );
-			await expect( page ).toClick( labelSelector );
-			await page.waitForSelector( '.amp-setting-toggle .components-form-toggle:not(.is-checked)' );
-		} else if ( ! checkedMobileRedirect && true === mobileRedirect ) {
-			await expect( page ).toClick( selector );
-			await page.waitForSelector( selector );
-		}
-	}
-
-	await clickNextButton();
-	await page.waitForTimeout( 1000 );
-	await page.waitForSelector( '.done__preview-container' );
+	await page.waitForSelector( '.done' );
 }
 
 export async function completeWizard( { technical = true, mode, readerTheme = 'legacy', mobileRedirect = true } ) {
