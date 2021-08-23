@@ -25,6 +25,8 @@ import { Navigation } from '../../components/navigation-context-provider';
 import { Options } from '../../../components/options-context-provider';
 import { RadioGroup } from '../../../components/radio-group/radio-group';
 import { Selectable } from '../../../components/selectable';
+import { IconLaptopToggles } from '../../../components/svg/icon-laptop-toggles';
+import { IconLaptopSearch } from '../../../components/svg/icon-laptop-search';
 import { Preview } from './preview';
 import { Saving } from './saving';
 
@@ -111,10 +113,14 @@ export function Review() {
 
 	return (
 		<div className="review">
+			<h1 className="review__heading">
+				{ __( 'Your site is live!', 'amp' ) }
+			</h1>
 			<div className="review__content review__content--primary">
-				<h1>
-					{ __( 'Your site is live!', 'amp' ) }
-				</h1>
+				<h2 className="review__icon-title">
+					<IconLaptopSearch />
+					{ __( 'Review', 'amp' ) }
+				</h2>
 				{ 'reader' === themeSupport && downloadedTheme === readerTheme && (
 					<AMPNotice size={ NOTICE_SIZE_LARGE } type={ NOTICE_TYPE_SUCCESS }>
 						{ __( 'Your Reader theme was automatically installed', 'amp' ) }
@@ -145,7 +151,7 @@ export function Review() {
 						</p>
 					</>
 				) }
-				<Selectable>
+				<Selectable className="review__links-container">
 					<RadioGroup
 						options={ previewPageOptions }
 						selected={ previewPageType }
@@ -179,7 +185,8 @@ export function Review() {
 				<Preview url={ PREVIEW_URLS[ previewPageType ][ previewMode === 'amp' ? 'amp_url' : 'url' ] } />
 			</div>
 			<div className="review__content review__content--secondary">
-				<h2>
+				<h2 className="review__icon-title">
+					<IconLaptopToggles />
 					{ __( 'Needing extra help?', 'amp' ) }
 				</h2>
 				<ul className="review__list">
